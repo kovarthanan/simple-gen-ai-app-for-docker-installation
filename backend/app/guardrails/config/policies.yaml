@@ -1,0 +1,54 @@
+# Guardrail + human-in-the-loop policy.
+# Actions: allow | redact | flag (continue, send to human review) | block (stop)
+# Anything left out falls back to the defaults in app/guardrails/base.py.
+
+use_presidio: false        # true = add Presidio NER-based PII detection (pip install presidio-analyzer)
+
+input:                     # user questions
+  min_length: 2
+  max_length: 4000
+  prompt_injection:
+    enabled: true
+    block_threshold: 0.5   # one matched pattern scores 0.6
+    extra_patterns: []     # your own regexes
+  pii:
+    enabled: true
+    action: redact         # PII is removed before retrieval and the LLM see it
+    entities: null         # null = all: EMAIL, CREDIT_CARD, AADHAAR, US_SSN, PAN, IP_ADDRESS, PHONE
+  blocked_topics:
+    action: block
+    keywords: []           # e.g. ["build a bomb", "credit card dump"]
+
+output:                    # LLM answers
+  groundedness:
+    enabled: true
+    min_score: 0.7         # share of sentences supported by the context
+    sentence_threshold: 0.5  # embedding similarity needed per sentence
+  citations:
+    required: true
+  toxicity:
+    enabled: true
+    action: flag
+    keywords: []           # placeholder; replace with a classifier for production
+  pii:
+    enabled: true
+    action: redact
+
+ingest:                    # uploaded documents
+  allowed_extensions: [.pdf, .docx, .txt, .md, .csv, .json, .html, .htm]
+  max_file_mb: 20
+  min_text_chars: 20
+  pii:
+    enabled: true
+    action: redact         # redacted before chunks are embedded or sent for extraction
+  prompt_injection:
+    enabled: true
+    action: flag           # documents containing LLM-directed instructions are flagged
+
+hitl:                      # human-in-the-loop routing
+  answer_review_below_confidence: 0.6
+  review_on_guard_flags: [groundedness, citations, toxicity, prompt_injection]
+  hold_answers_pending_review: true   # false = show the draft with a warning while it waits
+  entity_auto_approve_above: 0.8      # >= this goes straight into the knowledge graph
+  entity_drop_below: 0.3              # < this is discarded; in between goes to the review queue
+  negative_feedback_to_review: true   # thumbs-down sends the answer to the review queue
